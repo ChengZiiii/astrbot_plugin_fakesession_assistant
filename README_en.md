@@ -128,7 +128,7 @@ Creates a merged-forward message used to fake chat records.
 | `time` | Optional | Unix second-level timestamp, used to fake the message time |
 | `image` | Optional | Image URL (you may also just send an image; it is attached to the last segment automatically) |
 
-> **Note:** Two parameter-passing styles are supported: `{"segments": [...]}`, or passing the array `[...]` directly.
+> **Note**: Two parameter-passing styles are supported: `{"segments": [...]}`, or passing the array `[...]` directly.
 
 ---
 
