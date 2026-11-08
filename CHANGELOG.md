@@ -10,6 +10,16 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2-fork.3] - 2026-11-09
+
+### 修复
+
+- **`QQ|昵称|` 尾随空段按位置消解歧义**：fork.2 把 `QQ|X|`（第三段为空）一律回退为 `QQ|文本=X`，误伤了刻意的三段式收尾写法（如 `2175775837|缘尽|` + 图片——本意是"昵称=缘尽、内容=图片"，结果"缘尽"被混进文本位置）。现在按位置区分：**该段是最后一个段（后面无 `\|` 分段）→ 按字面解释 X=昵称、文本空**；**后面还有分段 → 尾 `|` 是分段残留 → 回退 X=文本**。两种写法互不干扰。
+
+### Fixed
+
+- `QQ|X|` trailing-empty-segment ambiguity now resolved by position: literal nickname interpretation when it is the final segment (no following `\|` parts), fallback to text interpretation when more segments follow.
+
 ## [1.1.2-fork.2] - 2026-11-09
 
 ### 修复

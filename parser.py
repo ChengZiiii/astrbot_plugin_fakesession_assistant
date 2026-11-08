@@ -27,7 +27,7 @@ def _split_raw_text(raw: str) -> list[str]:
     return [p.strip() for p in raw.split("\\|") if p.strip()]
 
 
-def _parse_segment(block: str) -> Segment | None:
+def _parse_segment(block: str, is_last: bool = False) -> Segment | None:
     at_pattern = re.compile(r"@(\d{5,12})")
     at_users = at_pattern.findall(block)
     block_clean = at_pattern.sub("", block).strip()
@@ -42,9 +42,13 @@ def _parse_segment(block: str) -> Segment | None:
         seg.text = parts[1].strip()
         return seg
 
-    # `QQ|文本|`（第三段为空）：视为 QQ|文本 的尾随分隔符，
-    # 防止内容被吃成昵称、真文本落到空的第三段
+    # `QQ|X|` 三段空尾的歧义按位置消解：
+    # - 是最后一个段（后面无 \| 分段）：用户刻意三段式收尾 → X=昵称、文本空（内容由随命令的图片承担）
+    # - 后面还有分段：尾 | 是分段残留（如换行后把 \| 写漏了前半）→ 回退 QQ|文本=X
     if len(parts) == 3 and not parts[2].strip():
+        if is_last:
+            seg.nickname = parts[1].strip()
+            return seg
         seg.text = parts[1].strip()
         return seg
 
@@ -83,10 +87,12 @@ def parse_message(event, raw_components: list | None = None) -> list[Segment]:
 
     segments: list[Segment] = []
     orphan_images: list[str] = []  # 落在被丢弃块（如"伪造外表"的标题块）里的图片
-    for block in _split_raw_text(raw_text):
+    blocks = _split_raw_text(raw_text)
+    for bi, block in enumerate(blocks):
         imgs = [image_urls[int(n)] for n in _IMG_TOKEN_RE.findall(block)]
         block = _IMG_TOKEN_RE.sub("", block)
-        seg = _parse_segment(block)
+        # 是否最后一段：`QQ|X|` 三段空尾在结尾位置按字面解释（X=昵称），中间位置按分段残留回退（X=文本）
+        seg = _parse_segment(block, is_last=(bi == len(blocks) - 1))
         if seg is None:
             orphan_images.extend(imgs)
             continue
