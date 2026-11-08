@@ -93,7 +93,11 @@ def _extract_content(text: str, *prefixes: str) -> str:
 
 
 def _rebuild_components(raw_msg, new_text: str) -> list:
-    """把第一个纯文本组件替换为新文本，其余组件（图片等）保持原位。"""
+    """把第一个纯文本组件替换为新文本，其余组件（图片等）保持原位。
+
+    图片组件本体保留在组件流原位置，由 parse_message 的占位符机制在
+    文本流中保位（修复图文混排时归属漂移）；被替换后其余纯文本统一丢弃。
+    """
     new_comps = []
     text_done = False
     for comp in raw_msg:
@@ -267,10 +271,8 @@ class SessionFakerPlugin(Star):
                     "示例：/伪造消息 123456|你好 \\| 654321|小王|你也好"
                 )
                 return
-            new_comps = _rebuild_components(
-                event.message_obj.message, f"伪造消息{content}"
-            )
-            segments = parse_message(event, raw_components=new_comps)
+            # 图片以占位符形式随原始组件进 parser，位置保真（修复图文混排时图片挂错段）
+            segments = parse_message(event)
             if not segments:
                 yield event.plain_result("未能解析，请检查格式。")
                 return

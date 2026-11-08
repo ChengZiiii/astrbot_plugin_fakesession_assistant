@@ -1,4 +1,4 @@
-"""消息解析器 — QQ号|昵称|内容 格式，\\| 切段，按位置分配图片"""
+"""消息解析器 — QQ号|昵称|内容 格式，\\| 切段，图片按占位符位置归段"""
 
 from __future__ import annotations
 
@@ -7,6 +7,10 @@ from dataclasses import dataclass, field
 
 from astrbot.api import logger
 from astrbot.api.message_components import Image, Plain
+
+# 图片占位符（Unicode 私有区包裹，正文不可能出现）
+IMG_TOKEN = "\ue000IMG{}\ue001"
+_IMG_TOKEN_RE = re.compile("\ue000IMG(\\d+)\ue001")
 
 
 @dataclass
@@ -38,6 +42,12 @@ def _parse_segment(block: str) -> Segment | None:
         seg.text = parts[1].strip()
         return seg
 
+    # `QQ|文本|`（第三段为空）：视为 QQ|文本 的尾随分隔符，
+    # 防止内容被吃成昵称、真文本落到空的第三段
+    if len(parts) == 3 and not parts[2].strip():
+        seg.text = parts[1].strip()
+        return seg
+
     # len >= 3: QQ|nickname|text 或 QQ||text
     second = parts[1].strip()
     if second:
@@ -47,74 +57,49 @@ def _parse_segment(block: str) -> Segment | None:
 
 
 def parse_message(event, raw_components: list | None = None) -> list[Segment]:
-    """从原始组件列表解析：按 \\| 切 blocks，图片跟在其前面的 block 后"""
+    """从组件流解析：图片以占位符嵌入文本流保位，按 \\| 切块后图片跟随所在块。
+
+    占位符方案取代旧的 offset 换算：图片组件在文本流中的真实位置由
+    \\ue000IMG<i>\\ue001 标记，切块后占位符落在哪个块，图片就归哪段——
+    图文混排（图片夹在两段命令文本之间）时归属不再漂移。
+    """
     comps = raw_components if raw_components is not None else event.message_obj.message
 
-    # 第一步：收集所有 Plain 文本和图片，并记录图片之前的累计文本长度
     raw_text = ""
-    image_offsets: list[tuple[int, str]] = []  # (在 raw_text 中的位置, url)
+    image_urls: list[str] = []
     for comp in comps:
         if isinstance(comp, Plain):
             raw_text += comp.text
         elif isinstance(comp, Image):
             url = getattr(comp, "url", "") or getattr(comp, "file", "")
             if url:
-                image_offsets.append((len(raw_text), url))
+                raw_text += IMG_TOKEN.format(len(image_urls))
+                image_urls.append(url)
 
-    if not raw_text.startswith("伪造消息"):
+    idx = raw_text.find("伪造消息")
+    if idx == -1:
         return []
+    raw_text = raw_text[idx + len("伪造消息"):]
 
-    prefix_len = len("伪造消息")
-    after_prefix = raw_text[prefix_len:]
-    raw_text = after_prefix.lstrip()
-    # 图片位置减去前缀长度 + 被 lstrip 剥掉的空白数：
-    # 落在被剥空白区内的图片（紧跟命令词）钳到 0，归入第一段
-    ws = len(after_prefix) - len(raw_text)
-    remapped_offsets = []
-    for o, u in image_offsets:
-        rel = o - prefix_len
-        if rel >= 0:
-            remapped_offsets.append((max(rel - ws, 0), u))
-    image_offsets = remapped_offsets
-
-    blocks = _split_raw_text(raw_text)
     segments: list[Segment] = []
-    block_spans: list[tuple[int, int, Segment]] = []  # (start, end, seg)
-
-    # 按 block 在 raw_text 中的位置记录区间
-    pos = 0
-    for block in blocks:
-        block_start = raw_text.find(block, pos)
-        if block_start == -1:
-            pos += len(block)
-            continue
-        block_end = block_start + len(block)
-        pos = block_end
-
+    orphan_images: list[str] = []  # 落在被丢弃块（如"伪造外表"的标题块）里的图片
+    for block in _split_raw_text(raw_text):
+        imgs = [image_urls[int(n)] for n in _IMG_TOKEN_RE.findall(block)]
+        block = _IMG_TOKEN_RE.sub("", block)
         seg = _parse_segment(block)
         if seg is None:
+            orphan_images.extend(imgs)
             continue
-
-        block_spans.append((block_start, block_end, seg))
+        seg.images.extend(orphan_images)
+        orphan_images = []
+        seg.images.extend(imgs)
         segments.append(seg)
 
-    # 分配图片：每段的归属区间延伸到下一段开头（容纳段尾的空格/换行），
-    # 最后一段延伸到消息末尾。修复图片紧跟段尾时被丢弃的问题。
-    for i, (start, _end, seg) in enumerate(block_spans):
-        span_end = block_spans[i + 1][0] if i + 1 < len(block_spans) else len(raw_text)
-        for offset, url in image_offsets:
-            if start <= offset < span_end:
-                seg.images.append(url)
-
-    # 未被第一轮覆盖的图片（位于 raw_text 末尾之后）挂到最后一段。
-    # 尾段区间在第一轮已延伸到 len(raw_text)，这里只补越界的那批，
-    # 否则落在 [尾段末, len(raw_text)) 的图片会被追加第二份。
-    if image_offsets and segments:
-        remaining = [url for offset, url in image_offsets if offset >= len(raw_text)]
-        if remaining:
-            segments[-1].images.extend(remaining)
+    # 尾部剩余孤儿图片挂最后一段（如图片写在标题之后的写法）
+    if orphan_images and segments:
+        segments[-1].images.extend(orphan_images)
 
     logger.debug(
-        f"[FakeSession] 解析: {len(blocks)} 段, {len(image_offsets)} 张图片, {len(segments)} 个有效段"
+        f"[FakeSession] 解析: {len(segments)} 个有效段, {len(image_urls)} 张图片"
     )
     return segments

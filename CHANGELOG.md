@@ -10,6 +10,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2-fork.2] - 2026-11-09
+
+### 修复
+
+- **图文混排图片归属漂移**：一条消息里"文本段 + 图片 + 文本段"（`\|` 分段）时，图片会被挂到最后一段而不是它物理所在的第一段，且第一段可能因尾随 `|` 被误判为 `QQ|昵称|` 三段式导致真文本落到空的第三段（节点显示为 `[图片]` 占位）。parser 改用占位符方案：图片在文本流中的真实位置由私有区占位符（`\ue000IMG<i>\ue001`）精确标记，切块后占位符落在哪个块、图片就归哪段；`/伪造消息` 命令路径改为直接解析原始组件流，彻底去掉旧的 offset 换算。
+- **`QQ|内容|` 尾随分隔符误判**：第三段为空的显式三段式（`QQ|昵称|`）现在回退为 `QQ|内容` 两段式解释，内容不再被吃成昵称。
+- 被丢弃块（如 `/伪造外表` 的标题块）中的图片不再丢失，顺延挂到最后一个有效段。
+
+### Fixed
+
+- Fixed image attachment drift in mixed text+image multi-segment commands: images now attach to the segment they physically appear in (placeholder-based positioning), and trailing-pipe segments (`QQ|text|`) fall back to two-part interpretation.
+
 ## [1.1.2-fork.1] - 2026-11-09
 
 ### 修复
