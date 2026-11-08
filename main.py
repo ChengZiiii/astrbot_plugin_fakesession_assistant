@@ -9,9 +9,25 @@ from astrbot.api import FunctionTool, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.message_components import At, Image, Node, Nodes, Plain
 from astrbot.api.star import Context, Star
+from astrbot.core.utils.media_utils import file_uri_to_path
 
 from .parser import Segment as Seg
 from .parser import parse_message
+
+
+def _image_component(img_url: str) -> Image:
+    """按图片来源形态构造 Image 组件。
+
+    AstrBot 4.x 的 preprocess 阶段会把收到的图片下载到本地，并把 Image 组件的
+    url/file 统一改写成本地路径（或 file:// URI），因此用户随命令附带的图片
+    可能是 http URL，也可能是本地路径 —— 需要分别处理，否则 fromURL 会抛
+    "not a valid url"。
+    """
+    if img_url.startswith(("http://", "https://")):
+        return Image.fromURL(img_url)
+    if img_url.startswith("file://"):
+        return Image.fromFileSystem(file_uri_to_path(img_url))
+    return Image.fromFileSystem(img_url)
 
 _PLUGIN_REF = None
 
@@ -56,7 +72,7 @@ async def _build_nodes(segments: list, event: AstrMessageEvent | None = None) ->
         content: list = [Plain(seg.text)] if seg.text else []
         content.extend(At(qq=user) for user in seg.at_users)
         for img_url in seg.images:
-            content.append(Image.fromURL(img_url))
+            content.append(_image_component(img_url))
         if not content:
             content = [Plain("[图片]")]
         nodes.append(Node(uin=int(seg.qq), name=nicknames[seg.qq], content=content))

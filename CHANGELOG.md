@@ -10,6 +10,18 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.2-fork.1] - 2026-11-09
+
+### 修复
+
+- 图片来源形态自适应：AstrBot 4.x 的 preprocess 阶段会把收到的图片下载到本地，并把 Image 组件的 `url`/`file` 改写成本地路径（或 `file://` URI），导致 `/伪造消息` 附带图片时报 `not a valid url`。现在按来源形态分发：http(s) URL 走 `Image.fromURL`，本地路径/`file://` URI 走 `Image.fromFileSystem`（bot 与协议端同机，本地路径直接可用）。
+
+### Fixed
+
+- Image source-shape adaptation: AstrBot 4.x's preprocess stage rewrites `Image` components' `url`/`file` to local paths after downloading, breaking `/伪造消息` with an attached image (`not a valid url`). URLs now go through `Image.fromURL`, local paths / `file://` URIs through `Image.fromFileSystem`.
+
+> 本仓库为上游 [OMSociety/astrbot_plugin_fakesession_assistant](https://github.com/OMSociety/astrbot_plugin_fakesession_assistant) 的 fork，由 ChengZiiii 维护，用于自部署环境（AstrBot 4.x + NapCat/SnowLuma 同机部署）的适配修复。
+
 ## [1.1.2] - 2026-09-25
 
 ### 修复
